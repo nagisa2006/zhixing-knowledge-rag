@@ -1,0 +1,14 @@
+[Unit]
+Description=Qdrant for Zhixing knowledge
+After=network-online.target
+
+[Service]
+Type=simple
+User=zhixing
+WorkingDirectory=/opt/zhixing-knowledge/qdrant
+ExecStart=/opt/zhixing-knowledge/qdrant/qdrant --config-path /opt/zhixing-knowledge/qdrant/qdrant.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

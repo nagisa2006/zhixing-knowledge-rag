@@ -1,0 +1,8 @@
+storage:
+  storage_path: /opt/zhixing-knowledge/qdrant/storage
+  snapshots_path: /opt/zhixing-knowledge/qdrant/snapshots
+service:
+  host: 127.0.0.1
+  http_port: 6333
+  grpc_port: 6334
+telemetry_disabled: true
