@@ -10,10 +10,10 @@ SSH exec 通道**，所以不要在服务器上执行 `git pull` —— `/home/u
 
 ```text
 zhixing-knowledge/
-  current/knowledge_service/   服务代码
-  current/deploy/              Qdrant 与 systemd 配置
-  current/.env.example         配置模板
-  data/knowledge.db            规范知识库
+  knowledge_service/       服务代码
+  deploy/                  Qdrant 与 systemd 配置
+  .env.example             配置模板
+  data/knowledge.db        规范知识库
   data/raw/                    官方原始资料快照
   README.md                    部署说明
   HANDOFF.json                 交接包校验信息
@@ -68,30 +68,39 @@ sudo cp -a /home/ubuntu/treehole/incoming/ks-offline/models /opt/zhixing-knowled
 sudo chown -R zhixing:zhixing /opt/zhixing-knowledge/models
 ```
 
-## 3. Python 环境
+## 3. Python 环境与直接部署
 
-安装脚本直接把依赖安装到系统 Python，不建立虚拟环境；systemd 也使用 `/usr/bin/python3`。
-默认从 `ks-offline/wheels/` 读取 wheel，也可以把自定义 wheel 目录作为第二个参数传入：
+安装脚本直接使用**脚本所在目录的上一级目录**作为代码根目录，不复制、不解包代码；systemd
+会按这个实际路径生成服务配置。也可以通过 `CODE_DIR` 显式指定代码根目录。
 
-```bash
-sudo bash /home/ubuntu/treehole/incoming/install-knowledge.sh \
-     /home/ubuntu/treehole/incoming/zhixing-knowledge-<hash>.tar.gz \
-     /path/to/wheels
+代码目录需要包含：
+
+```text
+<代码目录>/knowledge_service/
+<代码目录>/deploy/
+<代码目录>/data/
+<代码目录>/.env.example
 ```
 
-也可以通过 `WHEEL_DIR` 环境变量指定目录。安装过程仍然全程离线：wheel 用指定目录，
+执行：
+
+```bash
+sudo bash /path/to/knowledge/deploy/install-knowledge.sh [/path/to/wheels]
+```
+
+默认从 `/home/ubuntu/treehole/incoming/ks-offline/wheels/` 读取 wheel；也可以指定自定义目录：
+
+```bash
+sudo WHEEL_DIR=/path/to/wheels \
+  bash /path/to/knowledge/deploy/install-knowledge.sh
+```
+
+依赖直接安装到系统 Python，不建立虚拟环境。安装过程仍然全程离线：wheel 用指定目录，
 `jieba` 使用 `ks-offline/sdist/jieba-0.42.1.tar.gz`。
 
 依赖校验只使用 `importlib.metadata`。不要用 `ks-offline/install.sh`，它结尾打印
 `qdrant_client.__version__`，而 qdrant-client 1.15.1 没有这个属性，会在依赖已经装好的
 情况下以 `AttributeError` 退出。
-
-已核对 `~/ks-env` 里的依赖与 `knowledge_service/requirements.txt` 逐项一致
-（torch 2.6.0+cpu、sentence-transformers 4.1.0、transformers 4.51.3、qdrant-client 1.15.1、
-jieba 0.42.1、lxml 6.1.3、numpy 1.26.4 等），所以离线包是完整的。
-
-注意部署文档写的是 Python 3.11，本机只有 3.10，全部依赖在 3.10 可得，离线包也是按 3.10
-准备的。
 
 ## 4. Qdrant
 
@@ -184,7 +193,7 @@ sudo -u zhixing bash -c '
   set -a
   source /opt/zhixing-knowledge/knowledge.env
   set +a
-  cd /opt/zhixing-knowledge/current
+  cd /path/to/knowledge
   /usr/bin/python3 -m knowledge_service.community
 '
 ```

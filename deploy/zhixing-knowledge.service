@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=zhixing
-WorkingDirectory=/opt/zhixing-knowledge/current
+WorkingDirectory=/opt/zhixing-knowledge
 EnvironmentFile=/opt/zhixing-knowledge/knowledge.env
 ExecStart=/usr/bin/python3 -m knowledge_service.server
 Restart=on-failure

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# 小电知识服务：安装到 /opt/zhixing-knowledge
+# 小电知识服务：直接部署到脚本所在的代码目录
 #
- #   sudo bash /home/ubuntu/treehole/incoming/install-knowledge.sh [包路径] [wheel目录]
+#   sudo bash /path/to/knowledge/deploy/install-knowledge.sh [wheel目录]
+#
+# 也可以用 CODE_DIR 显式指定代码根目录。脚本不会搬运或解包代码。
 #
 # 每一步都带状态判断，可以重复执行：已经做完的跳过，中断的补上。
 # 已有的 data/ 和 knowledge.env 不会被覆盖 —— 前者可能已被摄取修改过，
@@ -11,32 +13,27 @@
 # 不启用官方刷新与论坛同步 timer。这三件由人决定。
 set -euo pipefail
 
-KS=/opt/zhixing-knowledge
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+KS="${CODE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 INCOMING=/home/ubuntu/treehole/incoming
 OFFLINE="$INCOMING/ks-offline"
-# 包名带构建哈希，而这个脚本自己也在包里，写死名字必然会过期。
-# 默认取 incoming/ 里最新的那个，也可以显式指定。
-PKG="${1:-$(ls -t "$INCOMING"/zhixing-knowledge-*.tar.gz 2>/dev/null | head -1)}"
-# 默认使用离线包自带的 wheels，也可以通过第二个参数或 WHEEL_DIR 指定目录。
-WHEEL_DIR="${2:-${WHEEL_DIR:-$OFFLINE/wheels}}"
+# 默认使用离线包自带的 wheels，也可以通过第一个参数或 WHEEL_DIR 指定目录。
+WHEEL_DIR="${1:-${WHEEL_DIR:-$OFFLINE/wheels}}"
 
 [ "$(id -u)" -eq 0 ] || { echo "!! 需要 root：sudo bash $0" >&2; exit 1; }
-[ -n "$PKG" ] || { echo "!! $INCOMING 里找不到 zhixing-knowledge-*.tar.gz" >&2; exit 1; }
 
 echo "=== 0. 前置检查 ==="
-echo "安装包：$PKG"
+echo "代码目录：$KS"
+echo "wheel 目录：$WHEEL_DIR"
 
-for path in "$PKG" "$PKG.sha256" \
-            "$WHEEL_DIR" "$OFFLINE/pinned.txt" \
+for path in "$WHEEL_DIR" "$OFFLINE/pinned.txt" \
             "$OFFLINE/sdist/jieba-0.42.1.tar.gz" \
             "$OFFLINE/models/bge-m3" \
             "$OFFLINE/models/bge-reranker-base" \
-            "$OFFLINE/qdrant/qdrant-x86_64-unknown-linux-gnu.tar.gz"; do
+            "$OFFLINE/qdrant/qdrant-x86_64-unknown-linux-gnu.tar.gz" \
+            "$KS/data/knowledge.db" "$KS/knowledge_service/server.py"; do
   [ -e "$path" ] || { echo "!! 缺少：$path" >&2; exit 1; }
 done
-
-# sha256 旁文件里的名字是相对的，必须在同目录校验
-(cd "$(dirname "$PKG")" && sha256sum -c "$(basename "$PKG").sha256")
 
 python3 -c "import sys; assert sys.version_info[:2]==(3,10), sys.version" \
   || { echo "!! 需要 Python 3.10（离线 wheel 是按 3.10 解析的）" >&2; exit 1; }
@@ -55,15 +52,7 @@ fi
 
 echo
 echo "=== 2. 代码与数据 ==="
-if [ -f "$KS/data/knowledge.db" ] && [ -f "$KS/current/knowledge_service/server.py" ]; then
-  echo "已解包，跳过（不覆盖现有 data/）"
-else
-  mkdir -p "$KS"
-  # --no-same-owner：包是在 macOS 上打的，带着那边的 uid/gid（501/staff）。
-  # 以 root 解包会把这些数字原样搬过来，而主机上没有这个用户。
-  tar -C /opt --no-same-owner -xzf "$PKG"
-  echo "已解包到 $KS"
-fi
+echo "代码已在目标目录，跳过复制（不覆盖现有 data/）"
 if command -v sqlite3 >/dev/null 2>&1; then
   echo "  已发布文档：$(sqlite3 "$KS/data/knowledge.db" "SELECT count(*) FROM documents WHERE status='published';")"
 fi
@@ -93,7 +82,7 @@ else
   install -m 0755 "$bin" "$KS/qdrant/qdrant"
   rm -rf "$tmp"
 fi
-cp "$KS/current/deploy/qdrant.yaml" "$KS/qdrant/qdrant.yaml"
+cp "$KS/deploy/qdrant.yaml" "$KS/qdrant/qdrant.yaml"
 echo "Qdrant 已就位"
 
 echo
@@ -145,7 +134,7 @@ if [ -f "$KS/knowledge.env" ]; then
   echo "knowledge.env 已存在，保留不动（其中的 API key 可能已抄进后端配置）"
   key="$(sed -n 's/^KNOWLEDGE_API_KEY=//p' "$KS/knowledge.env" | head -1)"
 else
-  cp "$KS/current/.env.example" "$KS/knowledge.env"
+  cp "$KS/.env.example" "$KS/knowledge.env"
   key="$(openssl rand -hex 32)"
   sed -i "s|^KNOWLEDGE_API_KEY=.*|KNOWLEDGE_API_KEY=$key|" "$KS/knowledge.env"
   echo "已生成 knowledge.env，KNOWLEDGE_API_KEY 已填随机值"
@@ -155,11 +144,16 @@ chmod 600 "$KS/knowledge.env"
 
 echo
 echo "=== 7. 归属与 systemd ==="
-# 包是 macOS 打的，解包可能留下不存在的 uid；这里统一纠正。
 chown -R zhixing:zhixing "$KS"
-cp "$KS/current/deploy/qdrant.service" "$KS/current/deploy/zhixing-knowledge.service" /etc/systemd/system/
+# 服务模板中的路径按实际代码目录展开，不再写死 /opt/zhixing-knowledge。
+sed "s#/opt/zhixing-knowledge#$KS#g" \
+    "$KS/deploy/qdrant.service" > /etc/systemd/system/qdrant.service
+sed "s#/opt/zhixing-knowledge#$KS#g" \
+    "$KS/deploy/zhixing-knowledge.service" > /etc/systemd/system/zhixing-knowledge.service
+sed "s#/opt/zhixing-knowledge#$KS#g" \
+    "$KS/deploy/qdrant.yaml" > "$KS/qdrant/qdrant.yaml"
 systemctl daemon-reload
-echo "已安装 qdrant.service 与 zhixing-knowledge.service"
+echo "已安装指向 $KS 的 qdrant.service 与 zhixing-knowledge.service"
 echo "自动刷新和论坛同步未进入正式部署包"
 
 echo
