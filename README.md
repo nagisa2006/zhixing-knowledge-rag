@@ -95,15 +95,14 @@ requirements 文件所在目录会自动作为其他离线资源根目录，因�
 ```text
 /data/ks-offline/
 ├── pinned.txt
-├── wheels/
-├── sdist/jieba-0.42.1.tar.gz
+├── wheels/                 # 包含 jieba 及 requirements 中的其他离线包
 ├── models/bge-m3/
 ├── models/bge-reranker-base/
 └── qdrant/qdrant-x86_64-unknown-linux-gnu.tar.gz
 ```
 
-依赖直接安装到系统 Python，不建立虚拟环境。安装过程全程离线：wheel 用第一个参数，
-requirements 用第二个参数，其他资源从 requirements 文件所在目录读取。
+依赖直接安装到系统 Python，不建立虚拟环境。安装过程全程离线：pip 根据第二个参数中的
+requirements 清单，从第一个参数指定的目录安装所有 Python 包（包括 `jieba`）。
 
 依赖校验只使用 `importlib.metadata`。不要用 `ks-offline/install.sh`，它结尾打印
 `qdrant_client.__version__`，而 qdrant-client 1.15.1 没有这个属性，会在依赖已经装好的

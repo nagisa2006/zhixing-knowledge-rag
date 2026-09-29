@@ -20,8 +20,8 @@ KS="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
   exit 1
 }
 WHEEL_DIR="$1"
-REQUIREMENTS_FILE="$2"
-OFFLINE="$(cd "$(dirname "$REQUIREMENTS_FILE")" && pwd)"
+REQUIREMENTS_FILE="$(realpath "$2")"
+OFFLINE="$(dirname "$REQUIREMENTS_FILE")"
 
 [ "$(id -u)" -eq 0 ] || { echo "!! 需要 root：sudo bash $0" >&2; exit 1; }
 
@@ -31,7 +31,6 @@ echo "wheel 目录：$WHEEL_DIR"
 echo "requirements：$REQUIREMENTS_FILE"
 
 for path in "$WHEEL_DIR" "$REQUIREMENTS_FILE" \
-            "$OFFLINE/sdist/jieba-0.42.1.tar.gz" \
             "$OFFLINE/models/bge-m3" \
             "$OFFLINE/models/bge-reranker-base" \
             "$OFFLINE/qdrant/qdrant-x86_64-unknown-linux-gnu.tar.gz" \
@@ -121,11 +120,9 @@ if verify_python; then
   echo "系统 Python 依赖已可用，跳过安装"
 else
   echo "向系统 Python 安装依赖（不建立 venv）"
+  # requirements 中包含 jieba；wheel 目录应包含它及其他依赖的 wheel 或源码包。
   python3 -m pip install --quiet --no-index --no-deps \
       --find-links="$WHEEL_DIR" -r "$REQUIREMENTS_FILE"
-  # jieba 只有源码包；--no-build-isolation 用已装的 setuptools，避免联网取构建依赖
-  python3 -m pip install --quiet --no-index --no-build-isolation \
-      "$OFFLINE/sdist/jieba-0.42.1.tar.gz"
   verify_python
 fi
 
