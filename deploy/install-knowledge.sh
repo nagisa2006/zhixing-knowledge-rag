@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # 小电知识服务：直接部署到脚本所在的代码目录
 #
-#   sudo bash /path/to/knowledge/deploy/install-knowledge.sh [wheel目录]
+#   sudo bash /path/to/knowledge/deploy/install-knowledge.sh <wheel目录> <requirements文件>
 #
-# 也可以用 CODE_DIR 显式指定代码根目录。脚本不会搬运或解包代码。
+# 代码目录由脚本位置决定；requirements 文件所在目录同时作为其他离线资源根目录。
 #
 # 每一步都带状态判断，可以重复执行：已经做完的跳过，中断的补上。
 # 已有的 data/ 和 knowledge.env 不会被覆盖 —— 前者可能已被摄取修改过，
@@ -13,20 +13,24 @@
 # 不启用官方刷新与论坛同步 timer。这三件由人决定。
 set -euo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-KS="${CODE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-INCOMING=/home/ubuntu/treehole/incoming
-OFFLINE="$INCOMING/ks-offline"
-# 默认使用离线包自带的 wheels，也可以通过第一个参数或 WHEEL_DIR 指定目录。
-WHEEL_DIR="${1:-${WHEEL_DIR:-$OFFLINE/wheels}}"
+KS="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+[ "$#" -eq 2 ] || {
+  echo "用法：sudo bash $0 <wheel目录> <requirements文件>" >&2
+  exit 1
+}
+WHEEL_DIR="$1"
+REQUIREMENTS_FILE="$2"
+OFFLINE="$(cd "$(dirname "$REQUIREMENTS_FILE")" && pwd)"
 
 [ "$(id -u)" -eq 0 ] || { echo "!! 需要 root：sudo bash $0" >&2; exit 1; }
 
 echo "=== 0. 前置检查 ==="
 echo "代码目录：$KS"
 echo "wheel 目录：$WHEEL_DIR"
+echo "requirements：$REQUIREMENTS_FILE"
 
-for path in "$WHEEL_DIR" "$OFFLINE/pinned.txt" \
+for path in "$WHEEL_DIR" "$REQUIREMENTS_FILE" \
             "$OFFLINE/sdist/jieba-0.42.1.tar.gz" \
             "$OFFLINE/models/bge-m3" \
             "$OFFLINE/models/bge-reranker-base" \
@@ -118,7 +122,7 @@ if verify_python; then
 else
   echo "向系统 Python 安装依赖（不建立 venv）"
   python3 -m pip install --quiet --no-index --no-deps \
-      --find-links="$WHEEL_DIR" -r "$OFFLINE/pinned.txt"
+      --find-links="$WHEEL_DIR" -r "$REQUIREMENTS_FILE"
   # jieba 只有源码包；--no-build-isolation 用已装的 setuptools，避免联网取构建依赖
   python3 -m pip install --quiet --no-index --no-build-isolation \
       "$OFFLINE/sdist/jieba-0.42.1.tar.gz"

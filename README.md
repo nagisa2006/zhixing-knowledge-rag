@@ -71,7 +71,7 @@ sudo chown -R zhixing:zhixing /opt/zhixing-knowledge/models
 ## 3. Python 环境与直接部署
 
 安装脚本直接使用**脚本所在目录的上一级目录**作为代码根目录，不复制、不解包代码；systemd
-会按这个实际路径生成服务配置。也可以通过 `CODE_DIR` 显式指定代码根目录。
+会按这个实际路径生成服务配置。
 
 代码目录需要包含：
 
@@ -82,21 +82,28 @@ sudo chown -R zhixing:zhixing /opt/zhixing-knowledge/models
 <代码目录>/.env.example
 ```
 
-执行：
+执行时必须传入两个参数：wheel 目录和 requirements/pinned 文件。
 
 ```bash
-sudo bash /path/to/knowledge/deploy/install-knowledge.sh [/path/to/wheels]
+sudo bash /path/to/knowledge/deploy/install-knowledge.sh \
+  /data/ks-offline/wheels \
+  /data/ks-offline/pinned.txt
 ```
 
-默认从 `/home/ubuntu/treehole/incoming/ks-offline/wheels/` 读取 wheel；也可以指定自定义目录：
+requirements 文件所在目录会自动作为其他离线资源根目录，因此该目录还需要包含：
 
-```bash
-sudo WHEEL_DIR=/path/to/wheels \
-  bash /path/to/knowledge/deploy/install-knowledge.sh
+```text
+/data/ks-offline/
+├── pinned.txt
+├── wheels/
+├── sdist/jieba-0.42.1.tar.gz
+├── models/bge-m3/
+├── models/bge-reranker-base/
+└── qdrant/qdrant-x86_64-unknown-linux-gnu.tar.gz
 ```
 
-依赖直接安装到系统 Python，不建立虚拟环境。安装过程仍然全程离线：wheel 用指定目录，
-`jieba` 使用 `ks-offline/sdist/jieba-0.42.1.tar.gz`。
+依赖直接安装到系统 Python，不建立虚拟环境。安装过程全程离线：wheel 用第一个参数，
+requirements 用第二个参数，其他资源从 requirements 文件所在目录读取。
 
 依赖校验只使用 `importlib.metadata`。不要用 `ks-offline/install.sh`，它结尾打印
 `qdrant_client.__version__`，而 qdrant-client 1.15.1 没有这个属性，会在依赖已经装好的
