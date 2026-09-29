@@ -57,15 +57,49 @@ sudo tar -C /opt --no-same-owner -xzf /home/ubuntu/treehole/incoming/zhixing-kno
 解包会把这些数字原样搬过来，而主机上没有对应用户。第 7 步的 `chown` 会纠正，但中途失败就会
 留下一地属主错误的文件。
 
-## 2. 放置模型（用主机上已有的那份）
+## 2. 下载并放置模型
 
-模型已在 `/home/ubuntu/treehole/incoming/ks-offline/models/`，9 月 10 日就位，固定修订与
-`.env.example` 一致（`bge-m3` 为 `5617a9f6…`，`bge-reranker-base` 为
-`2cfc18c9…`），且已按运行所需裁剪。
+服务使用以下两个固定版本：
+
+- [`BAAI/bge-m3@5617a9f61b028005a4858fdac845db406aefb181`](https://huggingface.co/BAAI/bge-m3/tree/5617a9f61b028005a4858fdac845db406aefb181)
+- [`BAAI/bge-reranker-base@2cfc18c9415c912f9d8155881c133215df768a70`](https://huggingface.co/BAAI/bge-reranker-base/tree/2cfc18c9415c912f9d8155881c133215df768a70)
+
+在能够访问 Hugging Face 的机器上运行下载脚本。默认下载到代码根目录的 `models/`：
 
 ```bash
-sudo cp -a /home/ubuntu/treehole/incoming/ks-offline/models /opt/zhixing-knowledge/models
-sudo chown -R zhixing:zhixing /opt/zhixing-knowledge/models
+bash deploy/download-models.sh
+```
+
+也可以将目标目录作为第一个参数传入：
+
+```bash
+bash deploy/download-models.sh /data/knowledge-models
+```
+
+脚本会：
+
+- 固定使用上述两个 revision，不跟随 `main`；
+- 自动安装临时的 `huggingface-hub` 下载工具，不修改项目 Python 环境；
+- 支持 Hugging Face 自身的断点续传缓存，下载中断后可直接重跑；
+- 排除本服务不使用的 ONNX、图片和重复权重；
+- 下载后检查服务实际需要的四个关键文件。
+
+如果目标服务器不能访问 Hugging Face，在联网机器上指定一个临时目录下载，再将整个目录复制到
+服务器代码根目录并命名为 `models`。
+
+将整个 `models/` 目录复制到代码根目录，最终必须是：
+
+```text
+<代码目录>/models/bge-m3/config.json
+<代码目录>/models/bge-m3/pytorch_model.bin
+<代码目录>/models/bge-reranker-base/config.json
+<代码目录>/models/bge-reranker-base/model.safetensors
+```
+
+例如代码位于 `/opt/zhixing-knowledge-rag`：
+
+```bash
+sudo cp -a models /opt/zhixing-knowledge-rag/
 ```
 
 ## 3. Python 环境与直接部署
@@ -90,19 +124,24 @@ sudo bash /path/to/knowledge/deploy/install-knowledge.sh \
   /data/ks-offline/pinned.txt
 ```
 
-requirements 文件所在目录会自动作为其他离线资源根目录，因此该目录还需要包含：
+两个参数只负责 Python 依赖，不再用于推导模型、jieba 源码包或 Qdrant 的位置：
 
-```text
-/data/ks-offline/
-├── pinned.txt
-├── wheels/                 # 包含 jieba 及 requirements 中的其他离线包
-├── models/bge-m3/
-├── models/bge-reranker-base/
-└── qdrant/qdrant-x86_64-unknown-linux-gnu.tar.gz
+```bash
+sudo bash /path/to/knowledge/deploy/install-knowledge.sh \
+  /home/ubuntu/wheelhouse \
+  /path/to/knowledge/knowledge_service/requirements.txt
 ```
 
-依赖直接安装到系统 Python，不建立虚拟环境。安装过程全程离线：pip 根据第二个参数中的
-requirements 清单，从第一个参数指定的目录安装所有 Python 包（包括 `jieba`）。
+wheel 目录需要包含 requirements 中所有包（包括 `jieba`）。非 Python 资源使用固定且明确的
+代码目录位置：
+
+```text
+<代码目录>/models/bge-m3/
+<代码目录>/models/bge-reranker-base/
+<代码目录>/qdrant/qdrant
+```
+
+如果 `qdrant` 已安装在系统 `PATH` 中，脚本会复制该可执行文件到上述位置。
 
 依赖校验只使用 `importlib.metadata`。不要用 `ks-offline/install.sh`，它结尾打印
 `qdrant_client.__version__`，而 qdrant-client 1.15.1 没有这个属性，会在依赖已经装好的

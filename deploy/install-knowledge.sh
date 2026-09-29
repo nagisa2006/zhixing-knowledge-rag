@@ -3,7 +3,7 @@
 #
 #   sudo bash /path/to/knowledge/deploy/install-knowledge.sh <wheel目录> <requirements文件>
 #
-# 代码目录由脚本位置决定；requirements 文件所在目录同时作为其他离线资源根目录。
+# 代码目录由脚本位置决定；两个参数仅用于安装 Python 依赖。
 #
 # 每一步都带状态判断，可以重复执行：已经做完的跳过，中断的补上。
 # 已有的 data/ 和 knowledge.env 不会被覆盖 —— 前者可能已被摄取修改过，
@@ -21,7 +21,6 @@ KS="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 }
 WHEEL_DIR="$1"
 REQUIREMENTS_FILE="$(realpath "$2")"
-OFFLINE="$(dirname "$REQUIREMENTS_FILE")"
 
 [ "$(id -u)" -eq 0 ] || { echo "!! 需要 root：sudo bash $0" >&2; exit 1; }
 
@@ -30,13 +29,28 @@ echo "代码目录：$KS"
 echo "wheel 目录：$WHEEL_DIR"
 echo "requirements：$REQUIREMENTS_FILE"
 
+missing=0
 for path in "$WHEEL_DIR" "$REQUIREMENTS_FILE" \
-            "$OFFLINE/models/bge-m3" \
-            "$OFFLINE/models/bge-reranker-base" \
-            "$OFFLINE/qdrant/qdrant-x86_64-unknown-linux-gnu.tar.gz" \
             "$KS/data/knowledge.db" "$KS/knowledge_service/server.py"; do
-  [ -e "$path" ] || { echo "!! 缺少：$path" >&2; exit 1; }
+  [ -e "$path" ] || { echo "!! 缺少：$path" >&2; missing=1; }
 done
+models_missing=0
+for model in bge-m3 bge-reranker-base; do
+  [ -d "$KS/models/$model" ] || {
+    echo "!! 缺少模型目录：$KS/models/$model" >&2
+    missing=1
+    models_missing=1
+  }
+done
+[ "$models_missing" -eq 0 ] || {
+  echo "   自动下载：sudo bash $KS/deploy/download-models.sh" >&2
+  echo "   详情见：$KS/README.md 的“下载并放置模型”章节" >&2
+}
+if [ ! -x "$KS/qdrant/qdrant" ] && ! command -v qdrant >/dev/null 2>&1; then
+  echo "!! 缺少 Qdrant：请将可执行文件放到 $KS/qdrant/qdrant，或安装到系统 PATH" >&2
+  missing=1
+fi
+[ "$missing" -eq 0 ] || exit 1
 
 python3 -c "import sys; assert sys.version_info[:2]==(3,10), sys.version" \
   || { echo "!! 需要 Python 3.10（离线 wheel 是按 3.10 解析的）" >&2; exit 1; }
@@ -62,12 +76,8 @@ fi
 echo "  原始资料：$(find "$KS/data/raw" -type f | wc -l) 份"
 
 echo
-echo "=== 3. 模型（用主机上已有的，不重新传输）==="
-if [ -d "$KS/models/bge-m3" ] && [ -d "$KS/models/bge-reranker-base" ]; then
-  echo "已就位，跳过"
-else
-  cp -a "$OFFLINE/models" "$KS/models"
-fi
+echo "=== 3. 模型 ==="
+echo "模型已就位"
 for m in bge-m3 bge-reranker-base; do
   echo "  $m: $(du -sh "$KS/models/$m" | cut -f1)"
 done
@@ -77,15 +87,13 @@ echo "=== 4. Qdrant ==="
 mkdir -p "$KS/qdrant/storage" "$KS/qdrant/snapshots"
 if [ -x "$KS/qdrant/qdrant" ]; then
   echo "二进制已就位，跳过"
+elif command -v qdrant >/dev/null 2>&1; then
+  install -m 0755 "$(command -v qdrant)" "$KS/qdrant/qdrant"
+  echo "已从系统 PATH 复制 qdrant"
 else
-  tmp="$(mktemp -d)"
-  tar -C "$tmp" -xzf "$OFFLINE/qdrant/qdrant-x86_64-unknown-linux-gnu.tar.gz"
-  bin="$(find "$tmp" -maxdepth 2 -type f -name qdrant | head -1)"
-  [ -n "$bin" ] || { echo "!! 压缩包里找不到 qdrant 可执行文件" >&2; rm -rf "$tmp"; exit 1; }
-  install -m 0755 "$bin" "$KS/qdrant/qdrant"
-  rm -rf "$tmp"
+  echo "!! 缺少 Qdrant：请将可执行文件放到 $KS/qdrant/qdrant，或安装到系统 PATH" >&2
+  exit 1
 fi
-cp "$KS/deploy/qdrant.yaml" "$KS/qdrant/qdrant.yaml"
 echo "Qdrant 已就位"
 
 echo
@@ -135,12 +143,14 @@ if [ -f "$KS/knowledge.env" ]; then
   echo "knowledge.env 已存在，保留不动（其中的 API key 可能已抄进后端配置）"
   key="$(sed -n 's/^KNOWLEDGE_API_KEY=//p' "$KS/knowledge.env" | head -1)"
 else
-  cp "$KS/.env.example" "$KS/knowledge.env"
+  sed "s#/opt/zhixing-knowledge#$KS#g" "$KS/.env.example" > "$KS/knowledge.env"
   key="$(openssl rand -hex 32)"
   sed -i "s|^KNOWLEDGE_API_KEY=.*|KNOWLEDGE_API_KEY=$key|" "$KS/knowledge.env"
   echo "已生成 knowledge.env，KNOWLEDGE_API_KEY 已填随机值"
   echo "请配置社区来源 URL 和独立同步密钥后再启用社区同步"
 fi
+# 仅迁移模板中的旧默认根目录；其他用户自定义路径保持不变。
+sed -i "s#/opt/zhixing-knowledge#$KS#g" "$KS/knowledge.env"
 chmod 600 "$KS/knowledge.env"
 
 echo
